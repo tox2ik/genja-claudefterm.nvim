@@ -704,8 +704,14 @@ function M.toggle(args, pick)
 	open(true, nil, t)
 end
 
----:ClaudeFterm!: running claude terminals in a dropdown; <CR> shows one, <M-d> kills it.
-function M.list()
+---@class genja-claudefterm.Running
+---@field name string floaterm name
+---@field root string project root
+---@field label string terminal buffer name, e.g. `claude-ft «<title>»`
+
+---Running claude terminals, sorted by name; for pickers outside this plugin (e.g. <F2>).
+---@return genja-claudefterm.Running[]
+function M.running()
 	local items = {}
 	for name, term in pairs(state.terms) do
 		local bufnr = term_bufnr(name)
@@ -714,11 +720,28 @@ function M.list()
 			table.insert(items, { name = name, root = term.root, label = label })
 		end
 	end
+	table.sort(items, function(a, b) return a.name < b.name end)
+	return items
+end
+
+---Show the running terminal `name` and jump in.
+---@param name string floaterm name, from M.running()
+function M.show(name)
+	local term = state.terms[name]
+	if not term then
+		vim.notify(SRC .. name .. ' is not running', vim.log.levels.WARN)
+		return
+	end
+	open(true, nil, { root = term.root, name = name })
+end
+
+---:ClaudeFterm!: running claude terminals in a dropdown; <CR> shows one, <M-d> kills it.
+function M.list()
+	local items = M.running()
 	if #items == 0 then
 		vim.notify(SRC .. 'no claude terminal runs; :ClaudeFterm starts one for this project')
 		return
 	end
-	table.sort(items, function(a, b) return a.name < b.name end)
 
 	local actions = require('telescope.actions')
 	local action_state = require('telescope.actions.state')
