@@ -6,6 +6,8 @@
 --   :ClaudeFterm [flags]   flags go to claude when it starts, e.g. --chrome, --model opus,
 --                  --effort high, --permission-mode plan, --add-dir <dir>; <Tab> completes.
 --                  Ignored (with a warning) while claude runs.
+--   :ClaudeFterm -1 / -one   no split: claude replaces the current window's buffer; :ClaudeFterm
+--                  again puts that buffer back. Only for this start, not kept like flags.
 --   paste_context()   paste context into this project's claude: normal = @file mention,
 --                  visual = path:lines + code. Jumps into the terminal to type the question.
 --   send(text, flags)   type text into claude and submit it (genja-ask's claudefterm target).
@@ -51,6 +53,8 @@ local TERM_PREFIX = 'claude-'
 ---@field watch_timer uv.uv_timer_t|nil polls the transcript for /rename
 ---@field autoclose string|nil floaterm's --autoclose, done here (see on_exit)
 ---@field flags string[]|nil extra claude flags it was started with (M.send)
+---@field here boolean|nil started with -one: shown in an editor window, not floaterm's split
+---@field prev_buf integer|nil -one: the buffer it replaced; shown again on hide and on exit
 
 -- Without these, floaterm opens claude in its default centred float.
 ---@type genja-claudefterm.TermOpts
@@ -477,6 +481,45 @@ local function term_win(bufnr)
 	return nil
 end
 
+---Window floaterm opened for `bufnr` (its split); nil when shown in an editor window (-one).
+---@param bufnr integer
+---@return integer|nil win
+local function floaterm_win(bufnr)
+	local win = vim.b[bufnr].floaterm_winid
+	if type(win) == 'number' and win > 0 and vim.api.nvim_win_is_valid(win) then
+		return win
+	end
+	return nil
+end
+
+---With -one: show `bufnr` in window `win` and remember the buffer it replaces.
+---floaterm's winid is cleared: its BufHidden hook closes that window, and this one is the user's.
+---@param term genja-claudefterm.Term
+---@param bufnr integer terminal buffer
+---@param win integer
+local function show_here(term, bufnr, win)
+	local prev = vim.api.nvim_win_get_buf(win)
+	if prev ~= bufnr then
+		term.prev_buf = prev
+	end
+	vim.api.nvim_win_set_buf(win, bufnr)
+	vim.fn['floaterm#config#set'](bufnr, 'winid', -1)
+end
+
+---With -one: put the replaced buffer back into `win` (a new empty one when it is gone).
+---@param term genja-claudefterm.Term
+---@param win integer window showing claude
+local function restore_here(term, win)
+	local buf = term.prev_buf
+	if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+		buf = term.origin_buf
+	end
+	if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+		buf = vim.api.nvim_create_buf(true, false)
+	end
+	vim.api.nvim_win_set_buf(win, buf)
+end
+
 ---When claude's job ends: close its windows like floaterm's --autoclose would.
 ---floaterm's own close fails with E444 when a split is the last window,
 ---so floaterm gets --autoclose=never and this keeps the last window open on another buffer.
@@ -502,8 +545,12 @@ local function on_exit(term, bufnr)
 				end
 				-- floaterm's BufHidden/BufWipeout autocmd would close the window again (E444)
 				pcall(vim.api.nvim_clear_autocmds, { group = 'floaterm_enter_insertmode', buffer = bufnr })
+				local split = floaterm_win(bufnr)
 				for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
-					if vim.api.nvim_win_is_valid(win) then
+					if vim.api.nvim_win_is_valid(win) and term.here and win ~= split then
+						-- -one: the user's window; give it its buffer back instead of closing it
+						restore_here(term, win)
+					elseif vim.api.nvim_win_is_valid(win) then
 						local tab = vim.api.nvim_win_get_tabpage(win)
 						local last = #vim.api.nvim_tabpage_list_wins(tab) == 1
 							and #vim.api.nvim_list_tabpages() == 1
@@ -594,7 +641,8 @@ end
 ---@param cb? fun(bufnr: integer)
 ---@param t? genja-claudefterm.Target default: the current buffer's
 ---@param flags? string[] extra claude flags; only used when claude starts
-local function open(focus, cb, t, flags)
+---@param here? boolean -one: a new claude takes the current window instead of a split
+local function open(focus, cb, t, flags, here)
 	if not t then
 		t = target()
 	end
@@ -619,6 +667,15 @@ local function open(focus, cb, t, flags)
 		vim.cmd('FloatermNew ' .. fterm_args(t.name, opts))
 		vim.env.CLAUDE_CODE_DISABLE_TERMINAL_TITLE = old_title_env
 		bufnr = term_bufnr(t.name)
+		if bufnr and here then
+			-- floaterm opened its split; move claude into the window it was started from
+			term.here = true
+			local split = term_win(bufnr)
+			show_here(term, bufnr, origin)
+			if split and split ~= origin then
+				vim.api.nvim_win_close(split, true)
+			end
+		end
 		if bufnr then
 			set_term_keys(bufnr)
 			on_exit(term, bufnr)
@@ -678,12 +735,34 @@ function M.setup(opts)
 	state.term_opts = vim.deepcopy(state.base_opts)
 end
 
+---Split `-1` / `-one` off the :ClaudeFterm args.
+---@param args? string
+---@return string? args the claude flags left over
+---@return boolean one true: start claude in the current window
+local function take_one_switch(args)
+	if not args or args == '' then
+		return args, false
+	end
+	local rest = {}
+	local one = false
+	for _, word in ipairs(vim.split(vim.trim(args), '%s+')) do
+		if word == '-1' or word == '-one' then
+			one = true
+		else
+			table.insert(rest, word)
+		end
+	end
+	return table.concat(rest, ' '), one
+end
+
 ---:ClaudeFterm: hide this project's claude when shown, else show (start) it and jump in.
 ---:ClaudeFterm!: pick a running claude terminal (M.list).
 ---@param args? string extra claude flags from :ClaudeFterm, e.g. '--chrome'; kept for later starts
 ---@param pick? boolean true for :ClaudeFterm!
 function M.toggle(args, pick)
 	state.term_opts = vim.deepcopy(state.base_opts)
+	local one
+	args, one = take_one_switch(args)
 	if args and args ~= '' then
 		state.term_opts.cmd = (state.base_opts.cmd or 'claude') .. ' ' .. args
 	end
@@ -697,11 +776,25 @@ function M.toggle(args, pick)
 		-- flags only apply at start; a running claude keeps its own
 		vim.notify(SRC .. 'claude already runs; ' .. args .. ' ignored (:FloatermKill ' .. t.name .. ', then retry)', vim.log.levels.WARN)
 	end
-	if bufnr and term_win(bufnr) then
+	local term = state.terms[t.name]
+	local win = nil
+	if bufnr then
+		win = term_win(bufnr)
+	end
+	if win and term and term.here and win ~= floaterm_win(bufnr) then
+		restore_here(term, win)
+		return
+	end
+	if win then
 		vim.cmd('FloatermHide ' .. t.name)
 		return
 	end
-	open(true, nil, t)
+	if bufnr and term and term.here then
+		show_here(term, bufnr, vim.api.nvim_get_current_win())
+		vim.cmd.startinsert()
+		return
+	end
+	open(true, nil, t, nil, one)
 end
 
 ---@class genja-claudefterm.Running
@@ -783,6 +876,7 @@ end
 -- Flags offered by :ClaudeFterm <Tab>. Session flags (--resume, --session-id, --continue)
 -- are left out: this plugin sets those itself.
 local FLAGS = {
+	'-one', -- this plugin's: no split, claude replaces the current buffer
 	'--chrome',
 	'--no-chrome',
 	'--model',
