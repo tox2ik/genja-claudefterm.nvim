@@ -13,7 +13,7 @@ code or history: confirm or delete. `Hint:` is a working note for Claude.
 
 - `lua/genja-claudefterm/init.lua`: `setup()`, `toggle()`, `list()`, `running()` / `show(name)` (for pickers outside, e.g. the config's `<F2>`), `paste_context()`, `send()`, `complete()`, `kill()`, session markers. The header comment describes the session marker.
 - `plugin/genja-claudefterm.lua`: `:ClaudeFterm [flags]`, `:ClaudeFterm!`.
-- Tests: the config's `tests/claudefterm/` (`make dir D=claudefterm` in `tests/`); claude is a fake script that logs its cwd and args.
+- Tests: the config's `tests/claudefterm/` (`make test D=claudefterm` in `tests/`); claude is a fake script that logs its cwd and args.
 - Moved out of the config's `lua/genja/claude.lua`; `:ClaudeFterm` moved out of `lua/genja/auto-alias.vim`.
 
 ## Decisions
@@ -26,3 +26,4 @@ code or history: confirm or delete. `Hint:` is a working note for Claude.
 - `:ClaudeFterm -1` / `-one` starts claude in the current window, replacing its buffer; `:ClaudeFterm` again puts that buffer back, and so does claude's exit. Only for that start (not kept like flags, so `send()` never takes the user's window); not passed to claude. (inferred)
 - -one: floaterm opens its split, then the plugin moves the buffer into the origin window, closes the split and sets floaterm's `winid` to -1, because floaterm's BufHidden hook closes the window in `winid`. A later `FloatermShow` (from `send()`, `paste_context()`, `show()`) opens floaterm's normal split again. (inferred)
 - `kill()` runs from the config's session sweep (`lua/genja/abbreviations.vim`) only when the module is already loaded.
+- `kill()` waits 200 ms between `FloatermKill`s: back to back they crashed the headless test child on Windows about one run in three (`kill() stops every terminal`); with the wait, 6 of 6 passed. It stays synchronous because `s:` runs `:qa` right after. (inferred)

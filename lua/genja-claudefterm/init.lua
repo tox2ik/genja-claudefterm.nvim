@@ -924,9 +924,16 @@ end
 ---Kill every claude terminal; used by `:s:` before :qa (a running job blocks :qa).
 ---Doesn't load floaterm just for this.
 function M.kill()
+	local first = true
 	for name, term in pairs(state.terms) do
 		stop_watch(term)
 		if vim.g.loaded_floaterm ~= nil and vim.fn['floaterm#terminal#get_bufnr'](name) ~= -1 then
+			-- let the previous job's exit run first: FloatermKills back to back sometimes crash a
+			-- headless nvim on Windows. Still synchronous: the s: abbreviation runs :qa right after.
+			if not first then
+				vim.wait(200)
+			end
+			first = false
 			vim.cmd('FloatermKill ' .. name)
 		end
 	end
