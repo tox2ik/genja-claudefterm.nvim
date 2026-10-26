@@ -11,7 +11,9 @@ code or history: confirm or delete. `Hint:` is a working note for Claude.
 
 ## Layout
 
-- `lua/genja-claudefterm/init.lua`: `setup()`, `toggle()`, `list()`, `running()` / `show(name)` (for pickers outside, e.g. the config's `<F2>`), `paste_context()`, `send()`, `complete()`, `kill()`, session markers. The header comment describes the session marker.
+- `lua/genja-claudefterm/init.lua`: `setup()`, `toggle()`, `list()`, `running()` / `show(name)` (for pickers outside, e.g. the config's `<F2>`), `paste_context()`, `send()`, `complete()`, `kill()`, terminals. The header comment describes the session marker.
+- `lua/genja-claudefterm/session.lua`: session marker (find, write, toggle), transcript (path, title, cwd), /rename polling.
+- UUIDs, the code fence and the visual range come from `genja-util.text` (`plug-wip/genja-util.nvim`, a spec dependency; the tests prepend it).
 - `plugin/genja-claudefterm.lua`: `:ClaudeFterm [flags]`, `:ClaudeFterm!`.
 - Tests: the config's `tests/claudefterm/` (`make test D=claudefterm` in `tests/`); claude is a fake script that logs its cwd and args.
 - Moved out of the config's `lua/genja/claude.lua`; `:ClaudeFterm` moved out of `lua/genja/auto-alias.vim`.
