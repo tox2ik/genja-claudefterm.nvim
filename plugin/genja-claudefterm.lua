@@ -11,3 +11,8 @@ end, {
 	end,
 	desc = "Claude: toggle this project's claude terminal (!: pick a running one)",
 })
+
+-- :ClaudeFtermMarkerToggle   switch the buffer's session marker off (enabled:false) or on
+vim.api.nvim_create_user_command('ClaudeFtermMarkerToggle', function()
+	require('genja-claudefterm').toggle_marker()
+end, { desc = 'Claude: session marker off (start new sessions) or on (resume)' })

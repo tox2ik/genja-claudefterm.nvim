@@ -29,6 +29,10 @@
 --     The buffer is changed but not saved.
 --   Read: when claude starts, the first and last MARKER_SCAN lines of the current buffer
 --     are searched. Found: `--resume <uuid>` in the session's cwd.
+--   Off: ` enabled:false` after the id (:ClaudeFtermMarkerToggle) -> claude starts a new
+--     session and /rename leaves the marker alone.
+--   Text files (filetype text, no 'commentstring'): `!! claude-session: <uuid> <title>`,
+--     appended at the bottom.
 --   Cwd: glob ~/.claude/projects/*/<uuid>.jsonl and read its "cwd" field.
 --     The dir name can't be decoded (the '-' encoding is lossy). Fallback: the parent
 --     of the file whose encoded name is that dir.
@@ -111,25 +115,28 @@ local function new_uuid()
 		.. hex:sub(17, 20) .. '-' .. hex:sub(21, 32)
 end
 
----Session id in the marker of `buf`, and the marker's 0-based line.
+-- a marker with this word is switched off: claude starts fresh and /rename leaves it alone
+local MARKER_OFF = ' enabled:false'
+
+---Session id in the marker of `buf`, the marker's 0-based line, and whether it is switched off.
 ---@param buf integer
----@return string|nil id, integer|nil lnum
+---@return string|nil id, integer|nil lnum, boolean off
 local function find_marker(buf)
 	local count = vim.api.nvim_buf_line_count(buf)
 	for i, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, MARKER_SCAN, false)) do
 		local id = line:match(MARKER)
 		if id then
-			return id, i - 1
+			return id, i - 1, line:find(MARKER_OFF, 1, true) ~= nil
 		end
 	end
 	local start = math.max(MARKER_SCAN, count - MARKER_SCAN)
 	for i, line in ipairs(vim.api.nvim_buf_get_lines(buf, start, count, false)) do
 		local id = line:match(MARKER)
 		if id then
-			return id, start + i - 1
+			return id, start + i - 1, line:find(MARKER_OFF, 1, true) ~= nil
 		end
 	end
-	return nil, nil
+	return nil, nil, false
 end
 
 ---Transcript of session `id`, in whichever project dir claude put it.
@@ -237,16 +244,26 @@ local function write_marker(term, id, title)
 		vim.notify(SRC .. 'session renamed, but the buffer claude was started from is gone', vim.log.levels.WARN)
 		return
 	end
+	local _, lnum, off = find_marker(buf)
+	if off then
+		vim.notify(SRC .. 'session renamed; the marker is switched off (enabled:false), left as is')
+		return
+	end
+
+	local text = 'claude-session: ' .. id .. ' ' .. title:gsub('%s+', ' ')
+	local line = nil
 	local cs = vim.bo[buf].commentstring
 	local at = cs:find('%s', 1, true)
-	if not at then
+	if at then
+		line = cs:sub(1, at - 1) .. text .. cs:sub(at + 2)
+	elseif vim.bo[buf].filetype == 'text' then
+		-- text files have no comments: a `!!` line, appended at the bottom
+		line = '!! ' .. text
+	else
 		vim.notify(SRC .. "no 'commentstring' for this filetype; marker not written", vim.log.levels.WARN)
 		return
 	end
-	local text = 'claude-session: ' .. id .. ' ' .. title:gsub('%s+', ' ')
-	local line = cs:sub(1, at - 1) .. text .. cs:sub(at + 2)
 
-	local _, lnum = find_marker(buf)
 	if lnum then
 		if vim.api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1] == line then
 			return
@@ -381,8 +398,8 @@ local function target()
 
 	local file = vim.api.nvim_buf_get_name(buf)
 	if vim.bo[buf].buftype == '' and file ~= '' then
-		local id = find_marker(buf)
-		if id then
+		local id, _, off = find_marker(buf)
+		if id and not off then
 			local path = transcript_path(id)
 			local cwd = nil
 			local title = nil
@@ -938,6 +955,30 @@ function M.kill()
 		end
 	end
 	state.terms = {}
+end
+
+---Switch the current buffer's session marker off (` enabled:false` after the id) or back on.
+---Off: :ClaudeFterm starts a new session and /rename leaves the marker alone.
+function M.toggle_marker()
+	local buf = vim.api.nvim_get_current_buf()
+	local id, lnum, off = find_marker(buf)
+	if not id or not lnum then
+		vim.notify(SRC .. 'no claude-session marker in the first or last ' .. MARKER_SCAN .. ' lines')
+		return
+	end
+	local line = vim.api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1]
+	local new = nil
+	if off then
+		new = line:gsub(vim.pesc(MARKER_OFF), '', 1)
+	else
+		new = line:gsub(vim.pesc(id), id .. MARKER_OFF, 1)
+	end
+	vim.api.nvim_buf_set_lines(buf, lnum, lnum + 1, false, { new })
+	if off then
+		vim.notify(SRC .. 'session marker on: :ClaudeFterm resumes ' .. id)
+	else
+		vim.notify(SRC .. 'session marker off: :ClaudeFterm starts a new session')
+	end
 end
 -- }}}
 
