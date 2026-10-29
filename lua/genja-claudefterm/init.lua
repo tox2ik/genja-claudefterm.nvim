@@ -5,7 +5,7 @@
 --   :ClaudeFterm!, list()   pick a running claude terminal: <CR> shows it, <M-d> kills it
 --   :ClaudeFterm [flags]   flags go to claude when it starts, e.g. --chrome, --model opus,
 --                  --effort high, --permission-mode plan, --add-dir <dir>; <Tab> completes.
---                  Ignored (with a warning) while claude runs.
+--                  Ignored (with a warning) while claude runs. -ax = --ax-screen-reader.
 --   :ClaudeFterm -1 / -one   no split: claude replaces the current window's buffer; :ClaudeFterm
 --                  again puts that buffer back. Only for this start, not kept like flags.
 --   paste_context()   paste context into this project's claude: normal = @file mention,
@@ -532,7 +532,12 @@ function M.setup(opts)
 	state.term_opts = vim.deepcopy(state.base_opts)
 end
 
----Split `-1` / `-one` off the :ClaudeFterm args.
+-- Short :ClaudeFterm flags, passed to claude as the full flag.
+local SHORT_FLAGS = {
+	['-ax'] = '--ax-screen-reader',
+}
+
+---Split `-1` / `-one` off the :ClaudeFterm args and expand the short flags.
 ---@param args? string
 ---@return string args the claude flags left over
 ---@return boolean one true: start claude in the current window
@@ -542,6 +547,8 @@ local function take_one_switch(args)
 	for _, word in ipairs(vim.split(vim.trim(args or ''), '%s+', { trimempty = true })) do
 		if word == '-1' or word == '-one' then
 			one = true
+		elseif SHORT_FLAGS[word] then
+			table.insert(rest, SHORT_FLAGS[word])
 		else
 			table.insert(rest, word)
 		end
@@ -669,6 +676,7 @@ end
 -- are left out: this plugin sets those itself.
 local FLAGS = {
 	'-one', -- this plugin's: no split, claude replaces the current buffer
+	'-ax', -- short for --ax-screen-reader
 	'--chrome',
 	'--no-chrome',
 	'--model',
