@@ -5,9 +5,7 @@ terminal, one per project, fed from the editor.
 
 - One terminal per project root: the git root of the current file (oil: its
   directory), else `:pwd`. Named `claude-<root basename>`.
-- Session markers: after `/rename` in claude, a comment line
-  `claude-session: <uuid> <title>` goes into the file you started from;
-  `:ClaudeFterm` in that file resumes the session later.
+- `/rename` in claude renames the terminal buffer (`claude-ft «<title>»`).
 - Paste context: the current file as an `@file` mention, or a selection as
   `path:lines` plus the code.
 - `send(text)` types text into claude and submits it (used by
@@ -42,12 +40,11 @@ terminal, one per project, fed from the editor.
 
 | Command | Action |
 |---|---|
-| `:ClaudeFterm` | show or hide this project's claude; starts it (or resumes the file's session) on first use |
+| `:ClaudeFterm` | show or hide this project's claude; starts it on first use |
 | `:ClaudeFterm [flags]` | flags go to claude when it starts, e.g. `--model opus`, `--permission-mode plan`; `<Tab>` completes |
 | `:ClaudeFterm -ax` | claude with `--ax-screen-reader` |
 | `:ClaudeFterm -1`, `-one` | no split: claude replaces the current window's buffer; again puts the buffer back |
 | `:ClaudeFterm!` | pick a running claude terminal: `<CR>` shows it, `<M-d>` kills it |
-| `:ClaudeFtermMarkerToggle` | switch the file's session marker off (new sessions) or on (resume) |
 
 Flags only apply when claude starts; a running claude keeps its own and you get a warning.
 
@@ -63,7 +60,7 @@ Flags only apply when claude starts; a running claude keeps its own and you get 
 ## Lua API
 
 `toggle(args, pick)`, `paste_context()`, `send(text, flags)`, `running()`,
-`show(name)`, `list()`, `kill()`, `toggle_marker()`.
+`show(name)`, `list()`, `kill()`.
 
 ## License
 

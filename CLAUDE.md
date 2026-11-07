@@ -11,8 +11,8 @@ code or history: confirm or delete. `Hint:` is a working note for Claude.
 
 ## Layout
 
-- `lua/genja-claudefterm/init.lua`: `setup()`, `toggle()`, `list()`, `running()` / `show(name)` (for pickers outside, e.g. the config's `<F2>`), `paste_context()`, `send()`, `complete()`, `kill()`, terminals. The header comment describes the session marker.
-- `lua/genja-claudefterm/session.lua`: session marker (find, write, toggle), transcript (path, title, cwd), /rename polling.
+- `lua/genja-claudefterm/init.lua`: `setup()`, `toggle()`, `list()`, `running()` / `show(name)` (for pickers outside, e.g. the config's `<F2>`), `paste_context()`, `send()`, `complete()`, `kill()`, terminals.
+- `lua/genja-claudefterm/session.lua`: transcript path, /rename polling for the terminal name.
 - UUIDs, the code fence and the visual range come from `genja-util.text` (`plug-wip/genja-util.nvim`, a spec dependency; the tests prepend it).
 - `plugin/genja-claudefterm.lua`: `:ClaudeFterm [flags]`, `:ClaudeFterm!`.
 - Tests: the config's `tests/claudefterm/` (`make test D=claudefterm` in `tests/`); claude is a fake script that logs its cwd and args.
@@ -28,8 +28,7 @@ code or history: confirm or delete. `Hint:` is a working note for Claude.
 - `:ClaudeFterm -1` / `-one` starts claude in the current window, replacing its buffer; `:ClaudeFterm` again puts that buffer back, and so does claude's exit. Only for that start (not kept like flags, so `send()` never takes the user's window); not passed to claude. (inferred)
 - -one: floaterm opens its split, then the plugin moves the buffer into the origin window, closes the split and sets floaterm's `winid` to -1, because floaterm's BufHidden hook closes the window in `winid`. A later `FloatermShow` (from `send()`, `paste_context()`, `show()`) opens floaterm's normal split again. (inferred)
 - `:ClaudeFterm -ax` passes `--ax-screen-reader` to claude: short flags live in `SHORT_FLAGS` (init.lua), expanded with the other flags and kept like them.
-- Session marker off: ` enabled:false` after the id; `:ClaudeFtermMarkerToggle` (`toggle_marker()`) adds or removes it. Off: `:ClaudeFterm` starts a new session, `/rename` leaves the marker alone (#39).
-- Filetype `text` (no `'commentstring'`) gets `!! claude-session: <uuid> <title>` at the bottom; other filetypes without one still get no marker (#39).
+- Session markers (a `claude-session: <uuid> <title>` comment written into the origin file on `/rename`, resumed by `:ClaudeFterm`, `:ClaudeFtermMarkerToggle`) were removed 2026-11-07 (not liked). `/rename` still renames the terminal buffer.
 - `paste_context()` in visual mode pastes from a buffer without a file too, labelled `no file`.
 - `kill()` runs from the config's session sweep (`lua/genja/abbreviations.vim`) only when the module is already loaded.
 - `kill()` waits 200 ms between `FloatermKill`s: back to back they crashed the headless test child on Windows about one run in three (`kill() stops every terminal`); with the wait, 6 of 6 passed. It stays synchronous because `s:` runs `:qa` right after. (inferred)

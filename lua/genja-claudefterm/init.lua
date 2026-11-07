@@ -1,7 +1,6 @@
 -- Idea #19 A (and #16): Claude Code in floaterms, one per project, fed from the editor.
---   Project root of the current buffer: the cwd of its session marker (see below), else the
---   git root of its file (oil: its dir), else :pwd. Terminal name: `claude-<root basename>`.
---   :ClaudeFterm   toggle this project's terminal; started on first use in the root (or resumed)
+--   Project root of the current buffer: the git root of its file (oil: its dir), else :pwd. Terminal name: `claude-<root basename>`.
+--   :ClaudeFterm   toggle this project's terminal; started on first use in the root
 --   :ClaudeFterm!, list()   pick a running claude terminal: <CR> shows it, <M-d> kills it
 --   :ClaudeFterm [flags]   flags go to claude when it starts, e.g. --chrome, --model opus,
 --                  --effort high, --permission-mode plan, --add-dir <dir>; <Tab> completes.
@@ -18,24 +17,10 @@
 --   <C-Up>                    in the claude terminal: to normal mode
 -- Pasting into the running session avoids `claude -p` startup time and keeps context.
 --
--- Session marker (session.lua): :ClaudeFterm resumes the session named in the file.
---   Marker: one comment line in the file, made with 'commentstring':
---     -- claude-session: <uuid> <title>
---   Start: a new claude gets `--session-id <new uuid>`, so its transcript is known:
---     ~/.claude/projects/<cwd, non-alnum -> '-'>/<uuid>.jsonl
---   Write: /rename in claude appends {"type":"custom-title","customTitle":...} to that
---     transcript. A timer reads what was appended; on a new title the marker goes into
---     the buffer claude was started from (term.origin_buf), replacing an older marker.
---     The buffer is changed but not saved.
---   Read: when claude starts, the first and last MARKER_SCAN lines of the current buffer
---     are searched. Found: `--resume <uuid>` in the session's cwd.
---   Off: ` enabled:false` after the id (:ClaudeFtermMarkerToggle) -> claude starts a new
---     session and /rename leaves the marker alone.
---   Text files (filetype text, no 'commentstring'): `!! claude-session: <uuid> <title>`,
---     appended at the bottom.
---   Cwd: glob ~/.claude/projects/*/<uuid>.jsonl and read its "cwd" field.
---     The dir name can't be decoded (the '-' encoding is lossy). Fallback: the parent
---     of the file whose encoded name is that dir.
+-- Session (session.lua): a new claude gets `--session-id <new uuid>`, so its transcript is
+--   known: ~/.claude/projects/<cwd, non-alnum -> '-'>/<uuid>.jsonl. /rename in claude appends
+--   {"type":"custom-title","customTitle":...} to it; a timer reads what was appended and
+--   renames the terminal buffer.
 --
 -- Terminal buffer name: `claude-ft «<title>»`, title capped at TITLE_MAX chars with '…';
 --   no title yet: `claude-ft «<basename of cwd>»`. Shown in the tabline and winbar.
@@ -59,7 +44,7 @@ local TITLE_MAX = 16 -- chars of the session title in the terminal buffer name, 
 ---@class genja-claudefterm.Term
 ---@field name string floaterm name, `claude-<root basename>`
 ---@field root string project root, also claude's cwd; paths are made relative to it
----@field origin_buf integer|nil buffer claude was started from; gets the session marker
+---@field origin_buf integer|nil buffer claude was started from; shown when claude exits in the last window or -one
 ---@field watch_timer uv.uv_timer_t|nil polls the transcript for /rename
 ---@field autoclose string|nil floaterm's --autoclose, done here (see on_exit)
 ---@field flags string[]|nil extra claude flags it was started with (M.send)
@@ -70,8 +55,6 @@ local TITLE_MAX = 16 -- chars of the session title in the terminal buffer name, 
 ---@class genja-claudefterm.Target
 ---@field root string project root, claude's cwd
 ---@field name string floaterm name
----@field resume_id string|nil session id from the buffer's marker
----@field title string|nil /rename title of that session
 
 -- Without these, floaterm opens claude in its default centred float.
 ---@type genja-claudefterm.TermOpts
@@ -161,8 +144,8 @@ local function term_name(root)
 	return name
 end
 
----Target of the current buffer: a claude terminal itself, the session in its marker,
----else the git root of its dir, else :pwd.
+---Target of the current buffer: a claude terminal itself, else the git root of its dir,
+---else :pwd.
 ---@return genja-claudefterm.Target
 local function target()
 	local own = vim.b.claude_term
@@ -170,36 +153,19 @@ local function target()
 		return { root = state.terms[own].root, name = own }
 	end
 
-	local file = buffer_file()
-	local id, _, off = session.find_marker(0)
-	if file and id and not off then
-		local path = session.transcript_path(id)
-		local cwd = path and session.cwd(path, file)
-		if cwd then
-			local root = vim.fs.normalize(cwd)
-			return { root = root, name = term_name(root), resume_id = id, title = session.transcript_title(path) }
-		end
-		vim.notify(SRC .. 'no transcript or cwd for session ' .. id .. '; starting a new one', vim.log.levels.WARN)
-	end
-
 	local root = vim.fs.normalize(vim.fs.root(buffer_dir(), '.git') or vim.fn.getcwd())
 	return { root = root, name = term_name(root) }
 end
 
----Floaterm options to start claude for `t`: resume its session, else a new one with a known id.
+---Floaterm options to start claude for `t`: a new session with a known id.
 ---@param t genja-claudefterm.Target
 ---@param flags? string[] extra claude flags, e.g. { '--model', 'opus' }
 ---@return genja-claudefterm.TermOpts opts, string id
 local function start_opts(t, flags)
 	local opts = vim.deepcopy(state.term_opts)
 	local cmd = table.concat(vim.list_extend({ opts.cmd or 'claude' }, flags or {}), ' ')
-	local id = t.resume_id
-	if id then
-		opts.cmd = cmd .. ' --resume ' .. id
-	else
-		id = txt.uuid()
-		opts.cmd = cmd .. ' --session-id ' .. id
-	end
+	local id = txt.uuid()
+	opts.cmd = cmd .. ' --session-id ' .. id
 	-- floaterm splits its options on unescaped spaces
 	opts.cwd = (t.root:gsub(' ', '\\ '))
 	return opts, id
@@ -452,9 +418,8 @@ local function start(t, flags, here, origin)
 	on_exit(term, bufnr)
 	vim.b[bufnr].claude_session_id = id
 	vim.b[bufnr].claude_term = t.name
-	set_term_name(bufnr, t.title, t.root)
-	session.watch(term, id, bufnr, t.resume_id ~= nil, t.title, function(title)
-		session.write_marker(term.origin_buf, id, title)
+	set_term_name(bufnr, nil, t.root)
+	session.watch(term, id, bufnr, function(title)
 		set_term_name(bufnr, title, term.root)
 	end)
 	return bufnr
@@ -727,12 +692,6 @@ function M.kill()
 		end
 	end
 	state.terms = {}
-end
-
----Switch the current buffer's session marker off (` enabled:false` after the id) or back on.
----Off: :ClaudeFterm starts a new session and /rename leaves the marker alone.
-function M.toggle_marker()
-	session.toggle_marker(vim.api.nvim_get_current_buf())
 end
 -- }}}
 
