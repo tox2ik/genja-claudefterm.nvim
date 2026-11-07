@@ -753,16 +753,18 @@ function M.paste_context()
 	local text = nil
 	if vim.fn.mode():match('^[vV\22]') then
 		local first, last = txt.visual_lines()
+		local code = table.concat(vim.api.nvim_buf_get_lines(0, first - 1, last, false), '\n')
+		-- a selection from a buffer without a file (scratch, :messages copy) still pastes
+		local label = 'no file'
 		if file then
-			local code = table.concat(vim.api.nvim_buf_get_lines(0, first - 1, last, false), '\n')
-			local label = rel_path(file, t.root) .. ':' .. first .. '-' .. last
-			text = label .. '\n' .. txt.fenced(code, vim.bo.filetype) .. '\n\n'
+			label = rel_path(file, t.root) .. ':' .. first .. '-' .. last
 		end
+		text = label .. '\n' .. txt.fenced(code, vim.bo.filetype) .. '\n\n'
 	elseif file then
 		text = '@' .. rel_path(file, t.root) .. ' '
 	end
 	if not text then
-		vim.notify(SRC .. 'nothing to paste: this buffer has no file', vim.log.levels.WARN)
+		vim.notify(SRC .. 'no file', vim.log.levels.WARN)
 		return
 	end
 	open(true, function(bufnr) paste(bufnr, text, false) end, t)

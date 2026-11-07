@@ -30,5 +30,6 @@ code or history: confirm or delete. `Hint:` is a working note for Claude.
 - `:ClaudeFterm -ax` passes `--ax-screen-reader` to claude: short flags live in `SHORT_FLAGS` (init.lua), expanded with the other flags and kept like them.
 - Session marker off: ` enabled:false` after the id; `:ClaudeFtermMarkerToggle` (`toggle_marker()`) adds or removes it. Off: `:ClaudeFterm` starts a new session, `/rename` leaves the marker alone (#39).
 - Filetype `text` (no `'commentstring'`) gets `!! claude-session: <uuid> <title>` at the bottom; other filetypes without one still get no marker (#39).
+- `paste_context()` in visual mode pastes from a buffer without a file too, labelled `no file`.
 - `kill()` runs from the config's session sweep (`lua/genja/abbreviations.vim`) only when the module is already loaded.
 - `kill()` waits 200 ms between `FloatermKill`s: back to back they crashed the headless test child on Windows about one run in three (`kill() stops every terminal`); with the wait, 6 of 6 passed. It stays synchronous because `s:` runs `:qa` right after. (inferred)
